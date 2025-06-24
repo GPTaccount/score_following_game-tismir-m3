@@ -250,3 +250,10 @@ If you want to see how the pre-trained model performs on a single piece run the 
 python test_agent.py --params ./models/<PATH-TO-PRETRAINEDMODEL>/best_model.pt --data_set <PATH-TO-DATA-ROOT>/msmd_all/msmd_all_test --piece BachJS__BWV117a__BWV-117a --agent_type rl
 ```
 
+### ⚠️ 關於 SoundFont 音色檔案
+
+由於 GitHub 限制上傳超過 100MB 的檔案，本專案**不包含** `grand-piano-YDP-20160804.sf2` 音色檔。
+
+若要使用 `fluidsynth` 合成音訊，請自行下載或放置下列檔案於以下路徑：
+
+score_following_game/sound_fonts/grand-piano-YDP-20160804.sf2
