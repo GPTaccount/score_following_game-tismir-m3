@@ -1,0 +1,19 @@
+name: score_following_m3
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.24
+  - scipy>=1.10
+  - matplotlib>=3.7
+  - pyyaml>=6.0
+  - tqdm
+  - opencv>=4.8
+  - pysoundfile
+  - ffmpeg
+  - fluidsynth
+  - libsndfile
+  - portaudio
+ 
