@@ -40,6 +40,12 @@ class OptimalAgent:
         observation, info = env.reset()
         # + : gymnasium.reset() 回傳 observation 和 info 字典，符合新版 API
 
+        # render first frame if we plan to store video frames
+        if render_mode == 'video':
+            frame = env.render()
+            if frame is not None:
+                observation_images.append(frame)
+
         done = False
 
         e = env
@@ -66,6 +72,8 @@ class OptimalAgent:
 
             # collect all observations
             if render_mode == 'video':
-                observation_images.append(e.obs_image)
+                frame = env.render()
+                if frame is not None:
+                    observation_images.append(frame)
 
         return alignment_errors, action_sequence, observation_images, episode_reward
