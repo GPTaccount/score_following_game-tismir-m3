@@ -579,9 +579,10 @@ class ScoreFollowingEnv(gym.Env):
         # else: logger.warning("Skipping separator line drawing due to invalid coordinates.") # Optional warning
 
 
-        # write text to the observation image
-        # + : 把文字畫在左上角黑邊 (pos=0)，之後再決定版面
-        self._write_text(obs_image=obs_image, pos=0, color=TEXT_COLOR) # + : 文字繪製位置改回 pos=0
+        # write diagnostic text aligned with the spectrogram region
+        # + : 計算文字的 y 座標，從樂譜區塊高度開始略微往下偏移
+        text_y = score_display.shape[0] + 10
+        self._write_text(obs_image=obs_image, pos_px=text_y, color=TEXT_COLOR)
 
 
         # preserve this for access from outside
@@ -638,24 +639,24 @@ class ScoreFollowingEnv(gym.Env):
     #     self.np_random, seed = seeding.np_random(seed)
     #     return [seed]
 
-    def _write_text(self, obs_image, pos, color):
-        # + : Internal helper for writing text, assuming pos is a line index scaled by 15px
+    def _write_text(self, obs_image, pos_px, color):
+        """Draw diagnostics text starting at a pixel y position."""
 
         # + : 恢復原始專案的文字內容和順序
         # + : 假設 self.rl_pool.sheet_speed 和 self.rl_pool.tracking_error() 是可用的
 
         # Original: pixel speed: (1st line in author's image)
-        write_text('pixel speed: {:4.1f}'.format(self.rl_pool.sheet_speed), pos * 15, obs_image, color=color)
+        write_text('pixel speed: {:4.1f}'.format(self.rl_pool.sheet_speed), pos_px, obs_image, color=color)
 
         # Original: last reward: (2nd line in author's image)
-        write_text('last reward: {:4.2f}'.format(self.last_reward if self.last_reward is not None else 0.0), (pos + 2) * 15, obs_image, color=color)
+        write_text('last reward: {:4.2f}'.format(self.last_reward if self.last_reward is not None else 0.0), pos_px + 30, obs_image, color=color)
 
         # Original: score: (3rd line in author's image)
-        write_text("score: {:6.2f}".format(self.cum_reward if self.cum_reward is not None else 0.0), (pos + 4) * 15, obs_image, color=color)
+        write_text("score: {:6.2f}".format(self.cum_reward if self.cum_reward is not None else 0.0), pos_px + 60, obs_image, color=color)
 
         # Original: action: (4th line, based on previous diffs, not explicitly in author's image example but good to have)
         action_text = "action: {:+6.1f}".format(self.last_action if self.last_action is not None else 0.0)
-        write_text(action_text, (pos + 6) * 15, obs_image, color=color) # + : action 顯示在 pos+6
+        write_text(action_text, pos_px + 90, obs_image, color=color)  # + : action 顯示在最後一行
 
 
     def prepare_score_for_render(self):
