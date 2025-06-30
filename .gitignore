@@ -9,3 +9,5 @@
 # 忽略過大的音色檔
 *.sf2
 
+/videos
+DebugLog.txt
