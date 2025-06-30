@@ -252,8 +252,8 @@ python test_agent.py --params ./models/<PATH-TO-PRETRAINEDMODEL>/best_model.pt -
 
 ### ⚠️ 關於 SoundFont 音色檔案
 
-由於 GitHub 限制上傳超過 100MB 的檔案，本專案**不包含** `grand-piano-YDP-20160804.sf2` 音色檔。
+由於 GitHub 限制上傳超過 100MB 的檔案，本專案**壓縮** `grand-piano-YDP-20160804.sf2` 音色檔後上傳。
 
-若要使用 `fluidsynth` 合成音訊，請自行下載或放置下列檔案於以下路徑：
+下載專案後需要解壓縮下列檔案：
 
-score_following_game/sound_fonts/grand-piano-YDP-20160804.sf2
+score_following_game\sound_fonts\grand-piano-YDP-20160804.sf2.zip
