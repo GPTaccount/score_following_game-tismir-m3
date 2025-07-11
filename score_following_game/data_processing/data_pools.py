@@ -6,6 +6,7 @@ import os
 import tqdm
 
 from score_following_game.data_processing.data_production import SongCache
+from functools import partial
 from score_following_game.data_processing.song import load_song
 from score_following_game.data_processing.utils import fluidsynth
 from typing import List
@@ -16,7 +17,7 @@ class RLScoreFollowPool(object):
         Data Pool for MIDI to MIDI snippet hashing.
     """
 
-    def __init__(self, cache, dataset: str, config: dict):
+    def __init__(self, cache, dataset: str, config: dict, sf2_path=None):
         """Constructor.
 
         Parameters
@@ -60,6 +61,9 @@ class RLScoreFollowPool(object):
         self.curr_song = None
 
         self.song_history = {}
+
+        # path to sound font used for synthesis
+        self.sf2_path = sf2_path
 
     def reset(self):
         """Reset generator.
@@ -186,8 +190,8 @@ class RLScoreFollowPool(object):
         return self.curr_song.get_perf_audio(fs)
 
     def get_current_score_audio_file(self, fs=44100):
-        """Renders the current performance using FluidSynth and returns the waveform."""
-        return fluidsynth(self.curr_song.get_score_midi(), fs=fs), fs
+        """Renders the current score using FluidSynth and returns the waveform."""
+        return fluidsynth(self.curr_song.get_score_midi(), fs=fs, sf2_path=self.sf2_path), fs
 
     def get_current_song_onsets(self):
         return self.curr_song.get_perf_onsets()
@@ -255,7 +259,7 @@ def get_shared_cache_pools(cache, config: dict, nr_pools=1, directory='test_samp
 
 
 def get_data_pools(config: dict, score_folder='score', perf_folder='performance', directory='test_sample',
-                   real_perf=None, n_worker=16) -> List[RLScoreFollowPool]:
+                   real_perf=None, n_worker=16, sf2_path=None) -> List[RLScoreFollowPool]:
     """Get a list of data pools with each data pool containing only a single song from the directory
 
     Parameters
@@ -272,6 +276,8 @@ def get_data_pools(config: dict, score_folder='score', perf_folder='performance'
         indicates whether to use a real performance (in the form of a wav file) or not
     n_worker : int
         number of workers for concurrently processing the data
+    sf2_path : str | None
+        optional path to a SoundFont file used for synthesis
 
 
     Returns
@@ -298,13 +304,27 @@ def get_data_pools(config: dict, score_folder='score', perf_folder='performance'
 
     pool = multiprocessing.Pool(n_worker)
 
-    data_pools = list(tqdm.tqdm(pool.imap_unordered(get_single_song_pool, params), total=len(score_paths)))
+    data_pools = list(
+        tqdm.tqdm(
+            pool.imap_unordered(partial(get_single_song_pool, sf2_path=sf2_path), params),
+            total=len(score_paths)
+        )
+    )
 
     pool.close()
     return data_pools
 
 
-def get_single_song_pool(params) -> RLScoreFollowPool:
+def get_single_song_pool(params, sf2_path=None) -> RLScoreFollowPool:
+    """Load a single song and wrap it into a data pool.
+
+    Parameters
+    ----------
+    params : dict
+        Dictionary containing song information.
+    sf2_path : str | None
+        Optional path to a SoundFont file for synthesis.
+    """
 
     config = params['config']
     song_name = params['song_name']
@@ -321,4 +341,4 @@ def get_single_song_pool(params) -> RLScoreFollowPool:
     cache = SongCache(1)
     cache.append(song)
 
-    return RLScoreFollowPool(cache, os.path.basename(os.path.normpath(directory)), config)
+    return RLScoreFollowPool(cache, os.path.basename(os.path.normpath(directory)), config, sf2_path=sf2_path)

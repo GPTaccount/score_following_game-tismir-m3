@@ -59,6 +59,7 @@ if __name__ == '__main__':
 
     # load game config
     config = load_game_config(args.game_config)
+    sf2_path = config.get("sound_font", None)
 
     # initialize song cache, producer and data pools
     CACHE_SIZE = 50
@@ -108,7 +109,8 @@ if __name__ == '__main__':
         model.cuda()
 
     # initialize model evaluation
-    evaluation_pools = get_data_pools(config, directory=args.eval_set, real_perf=args.real_perf)
+    evaluation_pools = get_data_pools(config, directory=args.eval_set, real_perf=args.real_perf,
+                                      sf2_path=sf2_path)
 
     # + : Evaluator 類別預期在其內部 (evaluation/evaluation.py) 已適配 Gymnasium API
     evaluator = Evaluator(env_fnc, evaluation_pools, config=config, trials=args.eval_trials, render_mode=None)
