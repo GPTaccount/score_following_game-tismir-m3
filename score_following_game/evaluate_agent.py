@@ -30,6 +30,7 @@ if __name__ == "__main__":
 
     # load game config
     config = load_game_config(args.game_config)
+    sf2_path = config.get("sound_font", None)
 
     # set agent type ('human', 'optimal') optimal currently not supported
     agent_type = render_mode
@@ -53,7 +54,8 @@ if __name__ == "__main__":
     agent = initialize_trained_agent(model, use_cuda=use_cuda, deterministic=False)
 
     # initialize evaluation pools
-    evaluation_pools = get_data_pools(config, directory=args.data_set, real_perf=args.real_perf)
+    evaluation_pools = get_data_pools(config, directory=args.data_set, real_perf=args.real_perf,
+                                      sf2_path=sf2_path)
 
     # set verbosity level
     verbose = args.trials == 1
