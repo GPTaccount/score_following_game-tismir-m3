@@ -267,6 +267,18 @@ def fluidsynth(midi, fs=44100, sf2_path=None):
     if sf2_path is not None and not os.path.isabs(sf2_path):
         sf2_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", sf2_path))
 
+    if sf2_path is not None:
+        if not os.path.isfile(sf2_path):
+            zipped_sf2 = sf2_path + ".zip"
+            if os.path.isfile(zipped_sf2):
+                import zipfile
+                print(f"[INFO] 找不到 {sf2_path}，自動解壓 {zipped_sf2}...")
+                with zipfile.ZipFile(zipped_sf2, "r") as zf:
+                    zf.extractall(os.path.dirname(sf2_path))
+            if not os.path.isfile(sf2_path):
+                raise RuntimeError(
+                    f"找不到音色檔 {sf2_path}，請先解壓縮 {zipped_sf2} 或確認路徑是否正確")
+
     # If there are no instruments, or all instruments have no notes, return
     # an empty array
     if len(midi.instruments) == 0 or all(len(i.notes) == 0 for i in midi.instruments):
