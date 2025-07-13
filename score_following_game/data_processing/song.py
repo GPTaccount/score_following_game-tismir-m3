@@ -330,7 +330,27 @@ def load_song(config: dict, cur_path_score, cur_path_perf, real_perf=False) -> S
     npzfile = np.load(cur_path_score, allow_pickle=True)
     score = (npzfile['sheet'], npzfile['coords'], npzfile['coord2onset'][0])
 
-    sound_font_default_path = config['default_sf']
+    # --- 修改前 ---
+    # sound_font_default_path = config['default_sf']
+
+    # 以 song.py 自身的位置為基準來建立路徑
+    # 1. 取得 song.py 檔案所在的目錄的絕對路徑
+    #    (.../score_following_game/data_processing)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # 2. 從該目錄往上走「一層」，到達 'score_following_game' 這個套件的根目錄
+    package_root = os.path.join(current_dir, '..')
+
+    # 3. 從 YAML 讀取相對於套件根目錄的路徑
+    sound_font_relative_path = config['default_sf']  # 'sound_fonts/...'
+
+    # 4. 將套件根目錄的絕對路徑與其相對路徑結合，得到最終的絕對路徑
+    sound_font_default_path = os.path.normpath(os.path.join(package_root, sound_font_relative_path))
+
+    #  加上這行來驗證產生的路徑是否正確
+    print(f"DEBUG [song.py]: Final absolute sound_font_path: {sound_font_default_path}")
+
+    # +++ 修改結束 +++
 
     if real_perf == 'wav':
 
