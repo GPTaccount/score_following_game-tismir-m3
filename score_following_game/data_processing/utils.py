@@ -262,6 +262,9 @@ def fluidsynth(midi, fs=44100, sf2_path=None):
     synthesized : np.ndarray
         Waveform of the MIDI data, synthesized at ``fs``.
     """
+    # +++ 步驟一：加入這個 print 語句來確認呼叫路徑 +++
+    print("✅ 呼叫的是 utils.fluidsynth()")
+
     import os
     # ✅ 強制將 sf2_path 轉為絕對路徑（如果不是）
     if sf2_path is not None and not os.path.isabs(sf2_path):
@@ -275,7 +278,11 @@ def fluidsynth(midi, fs=44100, sf2_path=None):
     waveforms = []
     for i in midi.instruments:
         if len(i.notes) > 0:
-            print(f"[DEBUG] Trying to load sf2_path: {sf2_path}")
+            # --- 移除舊的 [DEBUG] print，換成您建議的格式 ---
+            # print(f"[DEBUG] Trying to load sf2_path: {sf2_path}")
+
+            # +++ 步驟二：加入這個 print 語句來確認傳遞的參數值 +++
+            print(f"✅ i.fluidsynth() 準備接收參數：sf2_path='{sf2_path}'")
             waveforms.append(i.fluidsynth(fs=fs, sf2_path=sf2_path))
 
     # Allocate output waveform, with #sample = max length of all waveforms
