@@ -296,11 +296,18 @@ def get_data_pools(config: dict, score_folder='score', perf_folder='performance'
         for score_path in score_paths
     ]
 
+    # --- 修改前 (使用多行程) ---
     pool = multiprocessing.Pool(n_worker)
-
     data_pools = list(tqdm.tqdm(pool.imap_unordered(get_single_song_pool, params), total=len(score_paths)))
-
     pool.close()
+
+    # +++ 修改後 (改為單行程的 for 迴圈) +++
+    # data_pools = []
+    # print("INFO: Running in single-process mode for debugging.")
+    # for p in tqdm.tqdm(params, total=len(score_paths)):
+    #     data_pools.append(get_single_song_pool(p))
+    # +++ 修改結束 +++
+
     return data_pools
 
 
