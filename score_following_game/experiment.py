@@ -60,13 +60,21 @@ if __name__ == '__main__':
     # load game config
     config = load_game_config(args.game_config)
 
-    # initialize song cache, producer and data pools
-    CACHE_SIZE = 50
-    cache = create_song_cache(CACHE_SIZE)
-    producer_process = create_song_producer(cache, config=config, directory=args.train_set, real_perf=args.real_perf)
-    rl_pools = get_shared_cache_pools(cache, config, nr_pools=args.n_worker, directory=args.train_set)
+    # --- 註解掉或刪除所有與 cache 和 producer 相關的程式碼 ---
+    # # initialize song cache, producer and data pools
+    # CACHE_SIZE = 50
+    # cache = create_song_cache(CACHE_SIZE)
+    # producer_process = create_song_producer(cache, config=config, directory=args.train_set, real_perf=args.real_perf)
+    # rl_pools = get_shared_cache_pools(cache, config, nr_pools=args.n_worker, directory=args.train_set)
+    # 
+    # producer_process.start()
 
-    producer_process.start()
+    # +++ 直接使用我們已經驗證過可以成功運作的 get_data_pools 函式 +++
+    # +++ 這會在主行程中，一次性地載入所有訓練資料 +++
+    print("Loading all training data into memory upfront (single-process)...")
+    rl_pools = get_data_pools(config, directory=args.train_set, real_perf=args.real_perf, n_worker=args.n_worker)
+    print(f"Successfully loaded {len(rl_pools)} songs.")
+    # +++ 修改結束 +++
 
     # + : make_env_tismir 和 get_make_env 預期在 experiment_utils.py 中已完成 Gym -> Gymnasium 的遷移
     env_fnc = make_env_tismir
@@ -79,7 +87,13 @@ if __name__ == '__main__':
         # + : 假設 get_make_env 返回的環境創建函數已適配 Gymnasium API (reset/step)
         # + : 注意：舊版 baselines 的 ShmemVecEnv 可能無法完全兼容 Gymnasium 的 reset/step 返回值 (obs, info / obs, reward, terminated, truncated, info)
         # + : 這部分需要實際運行測試確認，或考慮替換為 Gymnasium / SB3 的 VecEnv。根據指示，目前維持原樣。
-        env = ShmemVecEnv([get_make_env(rl_pools[i], config, env_fnc, render_mode=None) for i in range(args.n_worker)])
+        # --- 註解掉 ShmemVecEnv ---
+        # env = ShmemVecEnv([get_make_env(rl_pools[i % len(rl_pools)], config, env_fnc, render_mode=None) for i in range(args.n_worker)])
+
+        # +++ 直接建立一個單一的、非平行的環境，就像 reinforce agent 一樣 +++
+        print("WARNING: Running in single-environment mode due to ShmemVecEnv incompatibility.")
+        print("         Training will be slower but more stable.")
+        env = get_make_env(rl_pools[0], config, env_fnc, render_mode=None)()
 
     # compile network architecture
     # + : env.action_space.n 的用法在 Gym 和 Gymnasium 中兼容
@@ -118,7 +132,14 @@ if __name__ == '__main__':
     args.lr_scheduler = lr_scheduler
     args.evaluator = evaluator
     args.n_actions = 1
-    # + : setup_agent 預期在其內部 (experiment_utils.py 或相關 agent 檔案) 已適配 Gymnasium API
+
+    # +++ 這是最關鍵的修改 +++
+    # 因為我們現在是在單一環境中訓練，所以必須將 worker 數量設定為 1
+    # 我們直接覆寫 args 中的值
+    print(f"INFO: Overriding n_worker from {args.n_worker} to 1 for single-environment training.")
+    args.n_worker = 1
+
+    # 現在，傳遞給 setup_agent 的 args 中，n_worker 的值就是 1
     agent = setup_agent(args=args)
 
     max_updates = args.max_updates * args.t_max

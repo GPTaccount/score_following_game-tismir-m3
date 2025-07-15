@@ -153,41 +153,42 @@ class Agent(object):
                 self.best_score = stats[self.score_name]
 
     def train(self, env, max_steps):
-        # - : gym.Env.reset() 僅回傳觀測值 (observation)
-        # state = env.reset()
+        # 1. 初始化環境，獲取初始觀測值
         obs, info = env.reset()
-        # + : gymnasium.Env.reset() 現在回傳 (obs, info) 二元組
-        state = obs
-        # + : 將觀測值 (obs) 指派給 state 變數，作為代理程式的狀態輸入
 
+        # 2. 為了與 a2c.py 的 select_action(state) 相容，
+        #    我們手動建立一個符合其期望的 state 元組。
+        #    在第一步，reward 和 done 都是初始值。
+        reward = 0.0
+        done = False
+        
         step_cnt = 0
-
         while step_cnt < max_steps:
-            # 假設 self.select_action(state) 可能回傳 (action, agent_decided_done)
-            # 根據「不更動原始邏輯」的原則，保留此部分
+            # 3. 將「上一步」的所有結果，打包成 state 元組，作為「這一步」的輸入
+            state = (obs, reward, done, info)
+
+            # 4. 將打包好的 state 傳給 agent 的 select_action 方法。
+            #    select_action 內部會處理所有經驗收集、計數和可能的模型更新。
+            #    agent_decided_done 主要由 ReinforceAgent 使用，A2C/PPO 會回傳 False。
             action, agent_decided_done = self.select_action(state)
 
-            if agent_decided_done:
-                # - : gym.Env.reset() 僅回傳觀測值 (observation)
-                # state = env.reset()
-                obs, info_reset = env.reset() # Gymnasium returns obs, info
-                # + : gymnasium.Env.reset() 現在回傳 (obs, info) 二元組
-                state = obs # 代理程式的狀態是觀測值
-                # + : 將新的觀測值 (obs) 指派給 state 變數
+            # 5. 如果環境在上一步結束 (done) 或 agent 自己決定結束 (agent_decided_done)，就重設環境。
+            if done or agent_decided_done:
+                obs, info = env.reset()
+                reward = 0.0
+                done = False
             else:
-                # - : gym.Env.step() 原回傳四元組 (obs, reward, done, info)，且假設 state 被指派為其中的 obs
-                # prev_obs, prev_reward, prev_done, prev_info = env.step(action) # 概念上的舊呼叫
-                # state = prev_obs 
-                current_obs, reward, terminated, truncated, info_step = env.step(action) # Gymnasium step API
-                # + : gymnasium.Env.step() 現在回傳五元組 (obs, reward, terminated, truncated, info)
-                state = current_obs # 代理程式的狀態是新的觀測值
-                # + : 將新的觀測值 (current_obs) 指派給 state 變數
-                # 注意：環境的 done 旗標 (terminated 或 truncated) 在此處未直接用於重置環境，
-                # 因為 agent_decided_done 旗標負責處理重置。這是原始邏輯的一部分。
+                # 6. 如果遊戲還在進行中，就執行 agent 的決策。
+                #    先從 agent 回傳的 action 陣列中，取出單一的動作來執行。
+                action_to_perform = action[0] if isinstance(action, np.ndarray) else action
+                
+                # 7. 將動作交給 gymnasium 環境，並獲取新的五元組資訊。
+                obs, reward, terminated, truncated, info = env.step(action_to_perform)
+                done = terminated or truncated
 
             step_cnt += 1
 
-            # stop training if learn rate scheduler stopped
+            # 8. 檢查學習率排程器是否決定停止訓練。
             if self.lr_scheduler is not None and self.lr_scheduler.learning_stopped():
                     break
 

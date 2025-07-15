@@ -78,8 +78,10 @@ def setup_parser():
 
     parser.add_argument('--optim', help='optimizer.', type=str, default="Adam")
     # - : yaml.load 在新版 PyYAML 中建議使用 safe_load 以提高安全性，但此處僅為 type，保留原樣
-    parser.add_argument('--optim_params', help='optimizer parameters.', type=yaml.load,
-                        default="{lr: 1e-4, betas: '(0.9, 0.999)'}")
+    #parser.add_argument('--optim_params', help='optimizer parameters.', type=yaml.load,
+    #                    default="{lr: 1e-4, betas: '(0.9, 0.999)'}")
+    parser.add_argument('--optim_params', help='optimizer parameters.', type=yaml.safe_load, # 建議也將 yaml.load 改為更安全的 safe_load
+                        default="{lr: 1e-4, betas: [0.9, 0.999]}")
     # + : 維持 yaml.load 作為 argparse 的 type 函數，雖然 PyYAML 建議使用 safe_load
     # - : 使用已棄用的 NumPy 型別別名 np.float
     # parser.add_argument('--max_grad_norm', help='maximum length of gradient vectors.', type=np.float, default=0.5)

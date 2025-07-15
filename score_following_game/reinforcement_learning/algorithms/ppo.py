@@ -28,80 +28,81 @@ class PPOAgent(A2CAgent):
         self.alpha = 1
 
     def perform_update(self):
+        # 1. [修正] PPOAgent 完全覆寫 perform_update，因此我們呼叫頂層 Agent 的同名方法
+        #    來處理 logging, evaluation, model dumping 等通用任務。
         Agent.perform_update(self)
 
+        # 2. 計算 GAE (Generalized Advantage Estimation) 和 returns
         with torch.no_grad():
             self.value_predictions[-1] = self.model.forward_value(self.prepare_model_input(-1))
-
+        
         gae = 0
-
         for step in reversed(range(self.t_max)):
-            delta = self.rewards[step] + self.gamma * self.value_predictions[step + 1] * self.masks[step] \
-                    - self.value_predictions[step]
+            delta = self.rewards[step] + self.gamma * self.value_predictions[step + 1] * self.masks[step] - self.value_predictions[step]
             gae = delta + self.gamma * self.gae_lambda * self.masks[step] * gae
             self.returns[step] = gae + self.value_predictions[step]
 
         advantages = self.returns[:-1] - self.value_predictions[:-1]
-
+        
+        # 3. 將 advantage 正規化
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-5)
 
         value_loss_epoch = 0
         policy_loss_epoch = 0
         dist_entropy_epoch = 0
         explained_variance_epoch = 0
-
         n_updates = 0
-
         clip = self.epsilon * self.alpha
 
+        # 4. PPO 的核心：多次迭代更新 (ppo_epoch)
         for _ in range(self.ppo_epoch):
+            # 建立隨機的 mini-batch 採樣器
             sampler = BatchSampler(SubsetRandomSampler(list(range(self.n_worker * self.t_max))),
-                                   self.batch_size, drop_last=False)
+                                self.batch_size, drop_last=False)
 
             for indices in sampler:
+                # 從經驗儲存區中，根據索引取出 mini-batch
                 actions_batch = self.actions.view(self.n_worker * self.t_max, -1)[indices]
                 return_batch = self.returns[:-1].view(-1, 1)[indices]
                 old_log_probs_batch = self.old_log_probs.view(-1, *self.old_log_probs.size()[2:])[indices]
 
+                # 對 mini-batch 進行一次正向傳播
                 model_returns = self.model(self.prepare_batch_input(indices))
-
                 policy = model_returns['policy']
                 values = model_returns['value']
 
+                # 計算 PPO 的 policy loss (surrogate objective)
                 action_log_probabilities = self.model.get_log_probs(policy, actions_batch)
-
                 ratio = torch.exp(action_log_probabilities - old_log_probs_batch)
-
                 advantage_target = advantages.view(-1, 1)[indices]
-
                 surr1 = ratio * advantage_target
                 surr2 = ratio.clamp(1.0 - clip, 1.0 + clip) * advantage_target
-
                 policy_loss = -torch.min(surr1, surr2).mean(dim=0)
-                dist_entropy = self.model.calc_entropy(policy)
-
+                
+                # 計算 value loss
                 # clip value loss according to
-                # https://github.com/openai/baselines/tree/master/baselines/ppo2
+                # https://github.com/openai/baselines/tree/master/baselines/ppo2               
                 if self.clip_value:
                     value_preds_batch = self.value_predictions[:-1].view(-1, 1)[indices]
-                    value_pred_clipped = value_preds_batch + \
-                                         (values - value_preds_batch).clamp(-clip, clip)
+                    value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-clip, clip)
                     value_losses = (return_batch - values).pow(2)
                     value_losses_clipped = (return_batch - value_pred_clipped).pow(2)
                     value_loss = 0.5 * torch.max(value_losses, value_losses_clipped).mean(dim=0)
                 else:
-                    value_loss = 0.5*(return_batch - values).pow(2).mean(dim=0)
+                    value_loss = 0.5 * (return_batch - values).pow(2).mean(dim=0)
+                
+                # 計算 entropy loss
+                dist_entropy = self.model.calc_entropy(policy)
 
-                losses = dict(policy_loss=policy_loss, value_loss=value_loss,
-                              dist_entropy=dist_entropy)
-
+                # 5. 更新模型
+                losses = dict(policy_loss=policy_loss, value_loss=value_loss, dist_entropy=dist_entropy)
                 self.model.update(losses)
 
+                # 累加 loss 以便 logging
                 value_loss_epoch += value_loss.item()
                 policy_loss_epoch += policy_loss.item()
                 dist_entropy_epoch += dist_entropy.item()
-                explained_variance_epoch += ((1 - (return_batch-values.detach()).var())
-                                             / return_batch.var()).item()
+                explained_variance_epoch += ((1 - (return_batch - values.detach()).var()) / return_batch.var()).item()
                 n_updates += 1
 
         value_loss_epoch /= n_updates
@@ -109,7 +110,7 @@ class PPOAgent(A2CAgent):
         dist_entropy_epoch /= n_updates
         explained_variance_epoch /= n_updates
 
-        # logging
+        # 6. 準備 logging 用的數據
         self.log_dict = {
             'policy_loss': policy_loss_epoch,
             'value_loss': value_loss_epoch,
@@ -119,6 +120,12 @@ class PPOAgent(A2CAgent):
             'median_reward': self.final_rewards.median(),
             'ppo_epsilon': clip
         }
+
+        # 7. [修正] 在所有 PPO 更新和 logging 準備都完成後，清理經驗
+        self.step = 0
+        self.rewards = []
+        self.store_step_states()
+
 
     def prepare_batch_input(self, indices):
 

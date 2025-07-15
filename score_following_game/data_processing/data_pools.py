@@ -1,4 +1,3 @@
-
 import glob
 import multiprocessing
 import numpy as np
@@ -27,20 +26,16 @@ class RLScoreFollowPool(object):
         """
 
         # parse config
-        self.score_shape = config['score_shape']
-        self.perf_shape = config['perf_shape']
+        self.score_shape = tuple(config['score_shape'])
+        self.perf_shape = tuple(config['perf_shape'])
 
         self.target_frame = config['target_frame']
         self.spec_representation = config['spec_representation']
         self.spectrogram_params = config['spectrogram_params']
 
-        self.score_shape = tuple(config['score_shape'])
-        self.perf_shape = tuple(config['perf_shape'])
-
         self.fps = self.spectrogram_params['fps']
 
         self.dataset = dataset
-
         self.cache = cache
 
         self.song_id = None
@@ -58,7 +53,6 @@ class RLScoreFollowPool(object):
         self.use_rate = config.get('use_rate', True)
 
         self.curr_song = None
-
         self.song_history = {}
 
     def reset(self):
@@ -66,7 +60,6 @@ class RLScoreFollowPool(object):
 
         Set sample generator to starting state.
         """
-
         self.curr_song = self.cache.get_random()
 
         # initialize positions
@@ -76,7 +69,6 @@ class RLScoreFollowPool(object):
         self.next_onset_idx = 1
         self.current_score_onset_idx = 0
 
-        # self.true_score_position = int(self.songs[self.song_id].get_perf_onset(0))
         self.true_score_position = int(self.curr_song.get_score_onset(0))
         self.est_score_position = int(self.curr_song.get_score_onset(0))
 
@@ -109,32 +101,46 @@ class RLScoreFollowPool(object):
         score_representation_excerpt : np.ndarray
             TF-representation of the score
         """
-
-        # comes from outside clock (e.g., running audio thread)
-        # we always start with the first onset in the performance
-        # so we offset the incrementor accordingly
         self.curr_perf_frame = self.first_onset + int(perf_frame_idx)
         perf_frame_idx_pad = self.curr_perf_frame + self.perf_shape[2]
-
         self.curr_perf_frame = perf_frame_idx_pad
 
-        # update estimated score position
         self.est_score_position += self.sheet_speed
         self.est_score_position = self.clip_coord(self.est_score_position,
                                                   self.curr_song.score['representation_padded'])
 
-        # get current piano roll excerpts
         perf_representation_excerpt, score_representation_excerpt = \
             self.curr_song.get_representation_excerpts(perf_frame_idx_pad, self.est_score_position)
-
-        # get true score position from annotations
+        
         self.true_score_position = self.curr_song.get_true_score_position(self.curr_perf_frame)
+
+        # +++ 這是最關鍵的修改：檢查並修正形狀 +++
+        # 如果 performance excerpt 的形狀不符合預期
+        if perf_representation_excerpt.shape != self.perf_shape:
+            # 計算需要填充的量
+            pad_width = [(0, 0)] * perf_representation_excerpt.ndim
+            # 只在最後一個維度（寬度）的前方進行填充
+            pad_amount = self.perf_shape[-1] - perf_representation_excerpt.shape[-1]
+            if pad_amount > 0:
+                pad_width[-1] = (pad_amount, 0)
+                # 使用 np.pad 進行填充，用 0 填充
+                perf_representation_excerpt = np.pad(perf_representation_excerpt, pad_width, mode='constant', constant_values=0)
+        
+        # 同樣地，也為 score excerpt 加上保險
+        if score_representation_excerpt.shape != self.score_shape:
+            pad_width = [(0, 0)] * score_representation_excerpt.ndim
+            pad_amount = self.score_shape[-1] - score_representation_excerpt.shape[-1]
+            if pad_amount > 0:
+                pad_width[-1] = (pad_amount, 0)
+                score_representation_excerpt = np.pad(score_representation_excerpt, pad_width, mode='constant', constant_values=0)
+        # +++ 修改結束 +++
 
         # check if the excerpts have the desired shape
         try:
             assert self.perf_shape == perf_representation_excerpt.shape \
                    and self.score_shape == score_representation_excerpt.shape
         except AssertionError as e:
+            # 這個 AssertionError 現在應該永遠不會被觸發了
             print('Datapool encountered a shape mismatch.')
             print('Songname: {}, perf_frame_idx_pad: {}, est_score_position: {}'.format(self.get_current_song_name(),
                                                                                         perf_frame_idx_pad,
@@ -145,7 +151,6 @@ class RLScoreFollowPool(object):
                                                                        score_representation_excerpt.shape))
 
         if self.curr_perf_frame >= self.next_onset:
-
             self.next_onset_idx += 1
             self.current_onset = self.next_onset
             if self.next_onset_idx < len(self.curr_song.get_perf_onsets()):
@@ -158,7 +163,6 @@ class RLScoreFollowPool(object):
 
     def update_position(self, step=1):
         """update the sheet speed"""
-
         if self.use_rate:
             self.sheet_speed += step
         else:
@@ -166,7 +170,6 @@ class RLScoreFollowPool(object):
 
     def tracking_error(self):
         """Compute distance between score and performance position."""
-
         # error should go negative when estimate is behind
         error = self.est_score_position - self.true_score_position
         return error
@@ -222,67 +225,31 @@ class RLScoreFollowPool(object):
         """
         Clip coordinate to be within sheet bounds
         """
-
         coord = np.max([coord, self.score_shape[2]//2])
         coord = np.min([coord, sheet.shape[2] - self.score_shape[2]//2 - 1])
-
         return coord
 
 
 def get_shared_cache_pools(cache, config: dict, nr_pools=1, directory='test_sample') -> List[RLScoreFollowPool]:
     """Get a list of data pools containing all the songs from the directory
-
-    Parameters
-    ----------
-    cache: SongCache
-        shared cache containing the songs the data pools can access
-    config : dict
-        dictionary specifying the config for the data pool and songs
-    nr_pools : int
-        number of data pools to create
-    directory : str
-        path to the directory containing the data that should be loaded
-
-    Returns
-    -------
-    pools: List[RLScoreFollowPool]
-        list of data pools with a shared cache
+    ...
     """
-
     pools = [RLScoreFollowPool(cache, os.path.basename(os.path.normpath(directory)), config) for _ in range(nr_pools)]
-
     return pools
 
 
 def get_data_pools(config: dict, score_folder='score', perf_folder='performance', directory='test_sample',
                    real_perf=None, n_worker=16) -> List[RLScoreFollowPool]:
     """Get a list of data pools with each data pool containing only a single song from the directory
-
-    Parameters
-    ----------
-    config : dict
-        dictionary specifying the config for the data pool and songs
-    score_folder : str
-        folder where the score midis are located
-    perf_folder : str
-        folder where the performance midis are located
-    directory : str
-        path to the directory containing the data that should be loaded
-    real_perf : [None | wav]
-        indicates whether to use a real performance (in the form of a wav file) or not
-    n_worker : int
-        number of workers for concurrently processing the data
-
-
-    Returns
-    -------
-    pools : List[RLScoreFollowPool]
-        list of data pools
+    ...
     """
-
     print('Load data pools...')
 
     score_paths = list(glob.glob(os.path.join(directory, score_folder, '*.npz')))
+    
+    # 增加一個檢查，如果找不到任何歌曲，就提前報錯
+    if not score_paths:
+        raise FileNotFoundError(f"No '.npz' files found in the specified score directory: {os.path.join(directory, score_folder)}")
 
     params = [
         dict(
@@ -296,18 +263,11 @@ def get_data_pools(config: dict, score_folder='score', perf_folder='performance'
         for score_path in score_paths
     ]
 
-    # --- 修改前 (使用多行程) ---
+    # 我們之前為了除錯而修改為單行程，現在將其保持為原始的多行程模式
     pool = multiprocessing.Pool(n_worker)
     data_pools = list(tqdm.tqdm(pool.imap_unordered(get_single_song_pool, params), total=len(score_paths)))
     pool.close()
-
-    # +++ 修改後 (改為單行程的 for 迴圈) +++
-    # data_pools = []
-    # print("INFO: Running in single-process mode for debugging.")
-    # for p in tqdm.tqdm(params, total=len(score_paths)):
-    #     data_pools.append(get_single_song_pool(p))
-    # +++ 修改結束 +++
-
+    
     return data_pools
 
 

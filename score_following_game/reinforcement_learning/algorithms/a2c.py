@@ -73,80 +73,67 @@ class A2CAgent(Agent):
 
     def select_action(self, state, train=True):
         super().select_action(state, train)
-
-        # activate training mode
         self.model.set_train_mode()
 
-        if len(state) == 4:
+        # 初始的 select_action 呼叫，state 是一個觀測值，不是元組
+        # 這個 else 區塊處理第一次呼叫，將觀測值存到正確的初始位置
+        if not isinstance(state, tuple) or len(state) != 4:
+            observation = state
+            for key in observation:
+                self.observations[key][0].copy_(torch.from_numpy(observation[key]))
+        else:
+            # 處理後續的呼叫，state 是一個 (obs, reward, done, info) 元組
             observation, reward, done, _ = state
-            reward = np.asarray([reward])
-            reward = torch.from_numpy(reward).transpose(1, 0).to(self.device)
 
-            self.episode_rewards += reward
+            # 1. [已修正] 將純量 reward 轉換為 [1, 1] 形狀的張量
+            reward_tensor = torch.tensor([[reward]], dtype=torch.float32).to(self.device)
+            self.episode_rewards += reward_tensor
+            self.rewards.append(reward_tensor)
 
-            self.rewards.append(reward)
+            # 2. [已修正] 將純量 done 轉換為對應的 NumPy mask 陣列
+            np_masks = np.array([0.0 if done else 1.0], dtype=np.float32)
 
-            np_masks = np.array([0.0 if done_ else 1.0 for done_ in done], dtype=np.float32)
-
-            # create a list of state tensors and be sure that they are of type float
             state_tensor_list = OrderedDict()
-
             for obs_key in observation:
-                state_tensor_list[obs_key] = torch.from_numpy(observation[obs_key]).view(self.observations[obs_key]
-                                                                                         .shape[1:]).to(self.device)
+                # 3. [已修正] 這裡的 view 操作現在是安全的，因為我們在 experiment.py 中
+                #    已經將 n_worker 強制設定為 1。
+                state_tensor_list[obs_key] = torch.from_numpy(observation[obs_key]).view(self.observations[obs_key].shape[1:]).to(self.device)
 
             self.on_done(state_tensor_list, np_masks)
-
-            # store observations
             for obs_key in state_tensor_list:
                 self.observations[obs_key][self.step].copy_(state_tensor_list[obs_key])
 
-            if train and self.step == self.t_max:
-                self.first_obs = False
-                self.perform_update()
-                self.step = 0
-                self.rewards = []
-                self.store_step_states()
-
             self.masks[self.step].copy_(torch.from_numpy(np_masks).unsqueeze(1))
-
-            # bookkeeping of rewards
             self.final_rewards *= self.masks[self.step]
             self.final_rewards += (1 - self.masks[self.step]) * self.episode_rewards
             self.episode_rewards *= self.masks[self.step]
 
-        else:
-            observation = state
-            for key in observation:
-                self.observations[key][0].copy_(torch.from_numpy(observation[key]))
-
+        # 4. 進行神經網路的正向傳播，獲取動作
         with torch.no_grad():
-            # get policy, value and possibly further networks specific returns for the current state
             model_returns = self.model(self.prepare_model_input(self.step))
 
         policy = model_returns['policy']
         value = model_returns['value']
-
         action_tensor, np_actions = self.model.sample_action(policy)
-
-        # primarily used for ppo
         log_probs = self.model.get_log_probs(policy, action_tensor).data
 
-        # self.actions[self.step].copy_(action_tensor.view(-1, 1))
-
         if self.n_actions == 1 and action_tensor.dim() < 2:
-            # otherwise we get wrong dimension
-            # TODO find better solution
             action_tensor = action_tensor.unsqueeze(-1)
 
         self.actions[self.step].copy_(action_tensor)
         self.value_predictions[self.step].copy_(value.data)
-
         self.old_log_probs[self.step].copy_(log_probs)
 
+        # 5. 更新計數器
         if train:
             self.step += 1
 
+        # 6. [已修正] 在收集了 t_max 步的經驗後，觸發更新
+        if train and self.step == self.t_max:
+            self.perform_update()
+
+        # 7. 返回動作。agent_decided_done 對於 A2C 來說永遠是 False，
+        #    因為環境的結束由 train 迴圈自己處理。
         return np_actions, False
 
     def prepare_single_forward_pass(self):
@@ -163,46 +150,32 @@ class A2CAgent(Agent):
         super().perform_update()
 
         model_returns = self.model(self.prepare_single_forward_pass())
-
         policy = model_returns['policy']
         values = model_returns['value']
 
         if self.gae:
             with torch.no_grad():
                 self.value_predictions[-1] = self.model.forward_value(self.prepare_model_input(-1))
-
             gae = 0
-
             for step in reversed(range(self.t_max)):
-                delta = self.rewards[step] + self.gamma * self.value_predictions[step + 1] * self.masks[step] \
-                        - self.value_predictions[step]
+                delta = self.rewards[step] + self.gamma * self.value_predictions[step + 1] * self.masks[step] - self.value_predictions[step]
                 gae = delta + self.gamma * self.gae_lambda * self.masks[step] * gae
                 self.returns[step] = gae + self.value_predictions[step]
-
         else:
-            # calculate returns
             with torch.no_grad():
                 self.returns[-1] = self.model.forward_value(self.prepare_model_input(-1))
-
             for step in reversed(range(self.t_max)):
                 self.returns[step] = self.returns[step + 1] * self.gamma * self.masks[step] + self.rewards[step]
 
         advantages = self.returns[:-1].view(-1).unsqueeze(1) - values
-
         log_probs = self.model.get_log_probs(policy, self.actions.view(self.n_worker * self.t_max, -1)).view(-1, 1)
-
         dist_entropy = self.model.calc_entropy(policy)
-
         value_loss = advantages.pow(2).mean(dim=0)
-
         policy_loss = -(advantages.data * log_probs).mean(dim=0)
 
-        losses = dict(policy_loss=policy_loss, value_loss=value_loss,
-                      dist_entropy=dist_entropy)
-
+        losses = dict(policy_loss=policy_loss, value_loss=value_loss, dist_entropy=dist_entropy)
         self.model.update(losses)
 
-        # logging
         self.log_dict = {
             'policy_loss': policy_loss.detach(),
             'value_loss': value_loss.detach(),
@@ -210,4 +183,9 @@ class A2CAgent(Agent):
             'avg_reward': self.final_rewards.mean(),
             'median_reward': self.final_rewards.median()
         }
+
+        # 8. [已修正] 在更新結束後，重設計數器並清理經驗，為下一批做準備
+        self.step = 0
+        self.rewards = []
+        self.store_step_states()
 
