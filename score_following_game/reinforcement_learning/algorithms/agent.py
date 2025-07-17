@@ -34,9 +34,27 @@ class Agent(object):
         self.dump_dir = dump_dir
 
         self.gamma = gamma
-        self.use_cuda = use_cuda
+        self.use_cuda = use_cuda # 我們依然保留這個參數，但不再是唯一的判斷依據
 
-        self.device = torch.device("cuda" if self.use_cuda else "cpu")
+        # +++ 這是最關鍵的修改 +++
+        # 1. 首先檢查是否有 Apple Silicon 的 MPS (Metal Performance Shaders) 可用
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            print("INFO: Apple Silicon GPU (MPS) detected. Using MPS for training.")
+        # 2. 如果沒有 MPS，再檢查是否有 NVIDIA 的 CUDA 可用
+        elif self.use_cuda and torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print("INFO: NVIDIA GPU (CUDA) detected. Using CUDA for training.")
+        # 3. 如果兩者都沒有，才使用 CPU
+        else:
+            self.device = torch.device("cpu")
+            print("INFO: No compatible GPU detected. Using CPU for training.")
+
+        # +++ 新增這一行：在 device 被決定後，立刻將模型移動到該裝置 +++
+        if self.model is not None:
+            self.model.to(self.device)
+
+        # +++ 修改結束 +++
 
         self.log_dict = dict()
 

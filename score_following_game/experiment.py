@@ -118,8 +118,8 @@ if __name__ == '__main__':
                                          high_is_better=not args.low_is_better)
 
     # use cuda if available
-    if args.use_cuda:
-        model.cuda()
+    # if args.use_cuda: # <--- 註解掉或刪除這整個 if 區塊
+    #    model.cuda()
 
     # initialize model evaluation
     evaluation_pools = get_data_pools(config, directory=args.eval_set, real_perf=args.real_perf)
